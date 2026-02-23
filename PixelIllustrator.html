@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html>
+<title>Pixel Illustrator</title>
+<body>
+<script>
+//quick ha\ck that'd be good to implement later:
+/*I did a quick ha\ck to change the background color of canvas randomly. Integrating some version of this into the app itself might be cool. (and if you published this editor, it'd be a unique feature for your clients to enjoy that might put you ahead of the competition.) A final implementation of this in the app would need a way to stop the interval from continuing though.
+  var changeBackground = function(canvas, changeRate) {
+    var newClr = function() {
+      var clr = 'rgb(' + Math.random() * 255 + ', ' + Math.random() * 255 + ', ' + Math.random() * 255 + ')';
+      canvas.style.backgroundColor = clr;
+    }
+    setInterval(newClr, changeRate);
+  };
+*/
+/*A different ha\ck for filling every pixel of canvas with solid white instead of transparent black (interestingly, it takes more chars to represent a solid white U8intClampedArray). Can be used for stress testing this app. Likely will never be implemented within app for user to use, but I can copy/paste this into chrome dev tools as needed to ha\ck my app.
+
+  (function() {
+  	app.canvas.ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+  	app.canvas.ctx.fillRect(0, 0, app.canvas.width, app.canvas.height);
+  })()
+
+*/
+
+
+/*LEFT OFF 6/14/21
+App is doing well :) There are really just 3 more main things you need to protect against data loss, then you can start using your app!
+1) Make an editing history array, so you can restore previous versions of that session using ctrl-y and ctrl-z
+2) Prompt the user if they really want to exit the page
+3) Make a view for the pixelSelectors, so user knows which of the 3 parts they are on when using the ctrl key.
+~ there might be an issue with using control mode and ctrl-z and ctrl-y? idk yet.
+*/
+	
+	'use strict';
+	/*CHECKLIST: I think if you can get all these check list items done, you can finally move on to using this app for making legit videogame spritemaps! The additional stuff required by text, or to change the pallette of a jimBitmap would not need to be handled by this app.
+	-  could add feature where you can type math expression into input fields, which would help with shading. (Or would it be better to just use hsla at that point..?) (Or another input field which changes each color cpnt by a certain multiplier, staying within bounds of 0-255 of course).
+  - Have input fields respond to tab key as well as enter.
+	-  change canvas background by clicking on a toolbar button or something that changes canvas background color to whatever is currently in the input fields.
+	-/ sync eyedropper to the input values, ie anytime you eyedropper a color, those values will be applied to the r g b a fields as well.
+	-  gridlines [OR] the pixel which your mouse currently is hovering over will become outlined
+	  ~  probably gridlines, so you can count how many pixels are next to each other.
+	-  form validation and/or autocorrecting inputs (many input values can cause errors)
+	-  handling the error where pixelSelectorB is above/left of pxSelectorA (read more where the actual code is)
+	-/ eyedropper tool
+	-/ translator (geometric) tool
+	-/ copier tool
+	-  view for the pixelSelectors, and the cropping rectangle they form. Otherwise easy to forget which stage of the process you're on and mess up the picture
+	  ~  some basic data safeguarding techniques would actually be really smart to include before you possibly mess up an entire spritemap. I will list my ADDITIONAL THOUGHTS ON THESE IN THE NEXT COMMENT*1
+	    - prompt the user if they really want to exit the page any time they hit the x
+	    - prompt the user that data will be lost anytime they paste imageData over pre-existing image data ( pasting over an area that is entirely transparent black is no issue.)
+	    - creating a ctrl-z type function (should be fairly easy. Just save previous versions of the canvas before each edit, which can be restored using ctrl-z).
+	-  help button (basically telling you the keyboard shortcuts to use for accessing eyedropper, translator, and copier tools)
+	-/ importing
+	-/ exporting
+	-/ rescaling
+	-/ changing colors
+	-/ resizing
+---------------------------
+  *1: You might also want to create a habit of
+	*/
+	
+	//MIGHT want to be careful with array mutator methods. I thought the mutated arrays die after the method ends, but function CLOSURES can leave references to mutated/broken data left behind.
+	
+	//for the purpose of this app, rgba8 may be used to refer to an rgba value where a is 0-255 instead of 0-1. (makes it more compatible with Uint8ClampedArray).
+	
+	//control of this app is intended to mostly reside within the app class. In other words, this is dependency injection approach, where app is in control of the libraries (my other classes) that it uses.
+	
+	//current standards for data transfer: jimBitmaps are only for inport and export. That means separate functions from the ones that work within the app, which just use ?ImageData? objects. alpha color values changed from 0-1 to 0-255 ASAP.
+	
+	
+	class App {
+		constructor() {
+			var i;
+			
+			//my data
+			this.maxCanvasWidthAndHeight = 510;  //Eventually, I realized my spritemaps were getting too big, and lagging out/crashing my program, caret, and pushing the limits of what chrome allows its max canvas size to be anyway. As a result, changing this value sets the limit for how big I can make my canvas. I have tested the whole process of import, export, etc. to work ok for a 500px^2 box of white pixels, so I'm trying to keep it within that ballpark range.   To make a "font" for one of my games, I'd need a gridbox for all 96 tangible ASCII chars. If I do a 10 by 10 grid, where each gridbox is 50px^2, I could fit 100 gridboxes into a canvas of 509px^2. Technically, this hasn't been tested to not crash out the full import/export process of my spritemaps, but I feel confident increasing this from what I did test to work (500px^2) will be ok.
+			this.r = 255;
+			this.g = 255;
+			this.b = 255;
+			this.a = 255;
+			this.width = 20;
+			this.height = 20;
+			this.magnification = 20;
+			this.clipboard;  //holds ImageData objects.
+			this.inVMode = false;
+			this.inShiftMode = false;
+			this.inCtrlMode = false;
+			this.pixelSelectorA = new PixelSelector();
+			this.pixelSelectorB = new PixelSelector();
+			this.editHistory = {pointer: 0, savedCanvases: []};
+			
+			//dom data
+		  document.body.style.backgroundColor = 'rgba(245, 214, 171, 1)';
+			this.coordinateTracker = new Label(0, undefined, undefined, 0);
+			this.toolBar = new ToolBar();
+			this.redInput = new InputField('Red');
+			this.greenInput = new InputField('Green');
+			this.blueInput = new InputField('Blue');
+			this.alphaInput = new InputField('Alpha');
+			this.tintInput = new InputField('Tint');
+			this.widthInput = new InputField('Width');
+			this.heightInput = new InputField('Height');
+			this.zoomInput = new InputField('Scale');
+			this.importInput = new InputField('Import');
+			this.exportButton = new Button('Export');
+			this.backgroundButton = new Button('Apply color to <br> background');
+			this.canvas = new Canvas(this.magnification, this.width, this.height);
+			
+			//fitting my data to dom data
+			this.coordinateTracker.changeLabel('x: y: ');
+			this.redInput.setValue(this.r.toString());
+			this.blueInput.setValue(this.g.toString());
+			this.greenInput.setValue(this.b.toString());
+			this.alphaInput.setValue(this.a.toString());
+			this.zoomInput.setValue(this.magnification.toString());
+			this.widthInput.setValue(this.width.toString());
+			this.heightInput.setValue(this.height.toString());
+			
+			//establish event handling and interval timers
+			window.addEventListener('keydown', this.handleKeyControls.bind(this));
+			window.addEventListener('keyup', this.handleKeyControls.bind(this));
+			this.redInput.bindInput(this.setColor.bind(this, 'r', this.redInput));
+			this.greenInput.bindInput(this.setColor.bind(this, 'g', this.greenInput));
+			this.blueInput.bindInput(this.setColor.bind(this, 'b', this.blueInput));
+			this.alphaInput.bindInput(this.setColor.bind(this, 'a', this.alphaInput));
+			this.tintInput.bindInput(this.tint.bind(this, this.tintInput));
+			this.zoomInput.bindInput(this.rescale.bind(this, this.zoomInput));
+			this.widthInput.bindInput(this.resize.bind(this, this.widthInput, this.heightInput));
+			this.heightInput.bindInput(this.resize.bind(this, this.widthInput, this.heightInput));
+			this.importInput.bindInput(this.importImage.bind(this, this.importInput));
+			this.exportButton.bindClicked(this.exportImage.bind(this));
+			this.backgroundButton.bindClicked(this.changeBackground.bind(this));
+			this.canvas.bindClicked(this.handleCanvasClicked.bind(this));
+			window.addEventListener('mousemove', this.handleUpdateMousePositionOverCanvas.bind(this));
+			
+			//appending elements
+//should really change so all the appending goes on here.
+      document.body.appendChild(this.toolBar.div);
+			this.toolBar.div.appendChild(this.redInput.div);
+			this.toolBar.div.appendChild(this.greenInput.div);
+			this.toolBar.div.appendChild(this.blueInput.div);
+			this.toolBar.div.appendChild(this.alphaInput.div);
+			this.toolBar.div.appendChild(this.tintInput.div);
+			this.toolBar.div.appendChild(this.widthInput.div);
+			this.toolBar.div.appendChild(this.heightInput.div);
+			this.toolBar.div.appendChild(this.zoomInput.div);
+			this.toolBar.div.appendChild(this.backgroundButton.button);
+			this.toolBar.div.appendChild(this.importInput.div);
+			this.toolBar.div.appendChild(this.exportButton.button);
+			document.body.appendChild(this.coordinateTracker.p);
+			
+			//initializing editHistory property
+			for(i = 0; i < 20; i ++) {
+				this.editHistory.savedCanvases.push(this.canvas.ctx.getImageData(0, 0, this.canvas.canvas.width, this.canvas.canvas.height));
+			}
+		}
+		getRGBA() {
+			return 'rgba(' + this.r + ', ' + this.g + ', ' + this.b + ', ' + this.a / 255 + ')';
+		}
+		handleUpdateMousePositionOverCanvas(event) {
+			var rect = this.canvas.canvas.getBoundingClientRect();
+			var x = Math.floor((event.clientX - rect.left) / this.magnification * devicePixelRatio);
+			var y = Math.floor((event.clientY - rect.top) / this.magnification * devicePixelRatio);
+			this.coordinateTracker.changeLabel('x: ' + x + ' y: ' + y);
+		}
+		setColor(colorValue, inputForm) {
+			this[colorValue] = parseInt(inputForm.input.value);
+		}
+		tint(multiplier) {
+			//input is a form, which should contain a real #. Negs darken, Positives lighten
+			multiplier = parseFloat(multiplier.input.value);
+			var i;
+			var arr = [['r', this.redInput.input], ['g', this.greenInput.input], ['b', this.blueInput.input]];
+			if(multiplier > 1 || multiplier < -1) {
+				multiplier = 0;
+			}
+			if(multiplier < 0) {
+				for(i = 0; i < arr.length; i ++) {
+					//sets the raw r g b properties of this class, as well as the input.value of each of the input fields.
+					this[arr[i][0]] = this[arr[i][0]] - this[arr[i][0]] * Math.abs(multiplier);
+					arr[i][1].value = this[arr[i][0]];
+				}
+			} else {
+				for(i = 0; i < arr.length; i ++) {
+					this[arr[i][0]] = this[arr[i][0]] + (255 - this[arr[i][0]]) * multiplier;
+					arr[i][1].value = this[arr[i][0]];
+				}
+			}
+		}
+		handleCanvasClicked() {
+//bug might occur if you were in shift and ctrl mode simultaneously (hitting both keys).
+      var rect = this.canvas.canvas.getBoundingClientRect();
+			var x = Math.floor((event.clientX - rect.left) / this.magnification * devicePixelRatio);
+			var y = Math.floor((event.clientY - rect.top) / this.magnification * devicePixelRatio);
+			if(this.inCtrlMode) {  //this selection statement basically handles copy and pasting parts of the canvas.
+				if(!this.pixelSelectorA.active) {
+console.log('pt1');
+					//part 1
+					this.pixelSelectorA.active = true;
+					this.pixelSelectorA.x = x;
+					this.pixelSelectorA.y = y;
+				} else {
+					if(!this.pixelSelectorB.active) {
+console.log('pt2');
+						//part 2
+						this.pixelSelectorB.active = true;
+					  this.pixelSelectorB.x = x;
+					  this.pixelSelectorB.y = y;
+//*Currently there will be a bug if pixel selector B is located above or to the left of pixel selector a, because the +1 is a partial patch. The true mathematical nature is you take the outside corners of both the rectangles formed by the selectors, instead of their top right corners as the program currently runs. You could either make both ways work, or just give an error message and say you can't do it that way. I will likely do the error way.
+					  this.clipboard = this.canvas.ctx.getImageData(this.pixelSelectorA.x, this.pixelSelectorA.y, this.pixelSelectorB.x - this.pixelSelectorA.x + 1, this.pixelSelectorB.y - this.pixelSelectorA.y + 1);
+					  //also copies the image data to local storage, so that you can copy/paste easier accross tabs
+					  localStorage.imageData = this.clipboard.data.toLocaleString();
+					  localStorage.imageDataWidth = this.pixelSelectorB.x - this.pixelSelectorA.x + 1;
+					} else {
+console.log('pt3');
+						//part 3
+						if(this.inShiftMode) {
+							//this enables you to translate instead of copy. The math expression takes the area of the selection rectangle and multiplies it by 4 for the 4 color components.
+							this.canvas.ctx.putImageData(new ImageData(new Uint8ClampedArray(  4 * (this.pixelSelectorB.x - this.pixelSelectorA.x + 1) * (this.pixelSelectorB.y - this.pixelSelectorA.y + 1) ), this.pixelSelectorB.x - this.pixelSelectorA.x + 1), this.pixelSelectorA.x, this.pixelSelectorA.y);
+							this.canvasChanged();
+						}
+						this.canvas.ctx.putImageData(this.clipboard, x, y);
+						this.canvasChanged();
+					  this.pixelSelectorA.active = false;
+					  this.pixelSelectorB.active = false;
+					}
+				}
+			} else if(this.inShiftMode) {  //eyedropper tool
+				var pixel = this.canvas.ctx.getImageData(x, y, 1, 1);
+				this.r = pixel.data[0];
+				this.g = pixel.data[1];
+				this.b = pixel.data[2];
+				this.a = pixel.data[3];
+				this.redInput.input.value = pixel.data[0].toString();
+				this.greenInput.input.value = pixel.data[1].toString();
+				this.blueInput.input.value = pixel.data[2].toString();
+				this.alphaInput.input.value = pixel.data[3].toString();
+			} else if(this.inVMode && localStorage.imageData) {  //paste from imageData (should allow you to paste between tabs)
+        this.canvas.ctx.putImageData(new ImageData(new Uint8ClampedArray(JSON.parse('[' + localStorage.imageData + ']')), parseInt(localStorage.imageDataWidth)), x, y);
+				this.canvasChanged();
+				this.pixelSelectorA.active = false;
+				this.pixelSelectorB.active = false;
+			} else {
+				this.canvas.ctx.putImageData(new ImageData(new Uint8ClampedArray([this.r, this.g, this.b, this.a]), 1), x, y);
+				this.canvasChanged();
+			}
+		}
+		changeBackground() {
+			this.canvas.canvas.style.backgroundColor = 'rgba(' + this.r + ', ' + this.g + ', ' + this.b + ', ' + this.a + ')';
+		}
+		rescale(value) {  //param can be an integer or a form object.
+		  if(typeof value === 'object') {
+		  	value = parseInt(value.input.value);
+		  }
+			this.canvas.rescale(value);
+			this.magnification = value;
+		}
+		resize(width, height) {  //params can be integers or form objects.
+      var determineLength = function(that, length) {
+      	var i, unitLength, numberOfUnits, gridlines, duplicatesCount;  //all four vars for use when you input a length like "20x10" first three are ints, and gridlines is a bool.
+      	//take various inputs and return them as a number for widths and heights
+//can map 3 types of input to correct numbers, but jibberish could still crash the program
+//maybe nesting another try/catch inside the outer catch block could length to 0 when jibberish entered. Good to fix this bug cause it'd suck to have done an hour worth of drawing and then not be able to save cause the program crashes.
+        duplicatesCount = 0;
+        for(i = 0; i < length.input.value.length; i++) {
+        	if(length.input.value[i] === 'x') {
+        		duplicatesCount++
+        		if(duplicatesCount > 1) {
+debugger;
+        			return [that.maxCanvasWidthAndHeight, 0];  //if something like "2x2x2" typed in, that'd confuse the program, so if that happens, I'll just set the canvas to maxSize to avoid bugs and/or losing data. Not the best fix but avoids too much reworking of my form validation system (which doesn't really even exist).
+        		}
+        	}
+        }
+      	if(typeof length === 'object') {
+      		if(!length.input.value.includes('x')) {  //if input field doesn't contain 'x' or 'X', parse as a normal number
+      			length = parseInt(length.input.value);  //turning a string property of the object into a number to be returned
+      			if(isNaN(length)) {
+      				length = that.maxCanvasWidthAndHeight;
+      			}
+      			numberOfUnits = 0;
+      		} else if(length.input.value.includes('x')) {  //if it includes x. duplicate x's ruled out above
+      			//this occurs when you input something like "20x10" to draw a grid over the canvas
+      			for(i = 0; i < length.input.value.length; i++) {
+      				if(length.input.value[i] === 'x') {
+      					unitLength = parseInt(length.input.value.slice(0, i));  //1 unit on the grid has a length equal to the number typed in before the x or X.
+      					numberOfUnits = parseInt(length.input.value.slice(i + 1, length.input.value.length));  //how many units to include in the grid
+      					length = unitLength * numberOfUnits + unitLength - 1;  //grid length roughly equals unitLength * numberOfUnits (rest of eq makes room for grey gridlines to be painted onto canvas). If both vars are zero, could theoretically get a neg #, which makes no sense for canvas dimensions. This addressed at end of function.
+      					break;
+      				}
+      			}
+      		}
+      		else {
+        		length = that.maxCanvasWidthAndHeight;
+      	  }
+      	};
+      	if(length < 0) {
+      	  length = 0;
+      	} else if(length > that.maxCanvasWidthAndHeight) {  //the total process of transferring data to and from caret and this app, as well as what html canvas can support, requires limits to be set on dimensions. Read green notebook if want more detail. I tested that the total process of import, export, saving can work with a 500 by 500 px^2 spritesheet of all white pixels. I allow max 503 currently, thinking that this will allow me to have a 14 by 14 grid of 35 by 35 px units, with one px reserved for padding/the gridlines.
+//In reality, could make a long and skinny canvas that has one dimension greater than 500 px in length. Might be nice to enable in future
+      		length = that.maxCanvasWidthAndHeight;
+      	}
+      	return [length, numberOfUnits];  //numberOfUnits should be set to 0 above if user input indicates no gridlines.
+      };
+			width = determineLength(this, width);  //an array specifying length and number of units, not just a number like you might expect
+			height = determineLength(this, height);
+			this.canvas.resize(width[0], height[0], [height[1], width[1]], this.getRGBA());
+			this.canvasChanged();
+			this.width = width;
+			this.height = height;
+		}
+		exportImage() {
+			var jimBitmap;
+			var imageData = this.canvas.ctx.getImageData(0, 0, this.canvas.canvas.width, this.canvas.canvas.height);
+		  jimBitmap = Array.from(imageData.data);  //sounds like this doesn't work for internet explorer
+		  jimBitmap.unshift(imageData.width);
+		  
+		  
+	
+/*
+//console.log(jimBitmap);
+		  jimBitmap = ''+jimBitmap;
+//console.log(jimBitmap);
+//var bs = [1, 2];
+//bs = ''+bs;
+//console.log(bs);
+//console.log(typeof jimBitmap);
+		  for(var i = 10000; i < Math.ceil(jimBitmap.length); i += 10000) {
+console.log('for');
+		  	var ib = 0;
+		  	while(jimBitmap[i + ib] !== ',') {
+debugger;
+console.log(i, i+ib, jimBitmap[i+ib]);
+		  	  ib++;
+		  	}
+		  	jimBitmap.splice(i+ib, 0, 'z');
+		  }*/
+		  
+		  
+		  
+		  
+		  //establishing a view to place jimBitmap in so that user can copy/paste it.
+		  //note also that this is not very OOP or really even good design in general but I think it's ok for now.
+		  var span = document.createElement('span');
+		  span.addEventListener('click', function() {event.stopPropagation();})
+		  span.style.backgroundColor = 'hsl(75, 80%, 80%)';
+		  span.style.border = '2px solid black';
+		  span.innerHTML = 'Copy raw data below for image.<br>Click "close" to escape<br>';
+		  var textArea = document.createElement('p');
+		  textArea.innerHTML = '[' + jimBitmap + ']';
+		  span.appendChild(textArea);
+		  span.style.position = 'fixed';
+		  document.body.append(span);
+		  var closer = document.createElement('a');
+		  closer.innerText = 'close';
+		  closer.style.position = 'relative';
+		  closer.style.left = span.style.left + span.clientWidth;
+		  closer.style.top = span.style.top + span.clientHeight;
+		  closer.addEventListener('click', function() {span.remove()})
+		  span.appendChild(closer);
+		}
+		importImage(data) {  //data is passed either a jimBitmap directly, or a form containing a jimBitmap
+		  if(typeof data === 'object') {
+			  data = data.input.value;
+		  }
+console.log(data);
+		  data = (Function('"use strict"; return ' + data + ';'))();
+console.log(data);
+		  var width = data[0];
+		  var dataCopy = data.slice();  //can be done without copying, but this led to a bug that I didn't fully understand but I think was caused by array mutators and closures. To be safe, I'll probably try to make copies at least for import and export.
+console.log(dataCopy);
+			dataCopy.shift();
+			dataCopy = new ImageData(new Uint8ClampedArray(dataCopy), width);
+			this.canvas.resize(dataCopy.width, dataCopy.height);
+			this.canvas.ctx.putImageData(dataCopy, 0, 0);
+			this.canvasChanged();
+			this.width = dataCopy.width;
+			this.height = dataCopy.height;
+			this.widthInput.input.value = dataCopy.width.toString();
+			this.heightInput.input.value = dataCopy.height.toString();
+		}
+		handleKeyControls() {
+			if(event.type === 'keydown') {
+				if(event.key === 'Shift') {
+					this.inShiftMode = true;
+				} else if(event.key === 'Control') {
+					this.inCtrlMode = true;
+				} else if(event.key === 'v') {
+					this.inVMode = true;
+				}
+			} else if(event.type === 'keyup') {
+				if(event.key === 'Shift') {
+					this.inShiftMode = false;
+				} else if(event.key === 'Control') {
+					this.inCtrlMode = false;
+				} else if(event.key === 'v') {
+					this.inVMode = false;
+				}
+			}
+			if(this.inCtrlMode && event.type === 'keyup' && event.key === 'z') {
+console.log('worked ctrl-z');
+        this.restoreArchivedCanvas('z');
+			}
+			if(this.inCtrlMode && event.type === 'keyup' && event.key === 'y') {
+console.log('worked ctrl-y');
+        this.restoreArchivedCanvas('y');
+			}
+		}
+		canvasChanged() {
+			//in theory, the editHistoryArray should always be the same length it was initialized to, as the only place it is mutated is here, where 1 unshift() and 1 pop() balance each other out.
+			this.editHistory.pointer = 0;
+			this.editHistory.savedCanvases.unshift(this.canvas.ctx.getImageData(0, 0, this.canvas.canvas.width, this.canvas.canvas.height));
+			this.editHistory.savedCanvases.pop();
+		}
+		restoreArchivedCanvas(yOrZ) {
+			var canvasImageData;
+			if(yOrZ === 'y' && this.editHistory.pointer >= 1) {
+				this.editHistory.pointer -= 1;
+			} else if(yOrZ === 'z' && this.editHistory.pointer <= 8) {
+				this.editHistory.pointer += 1;
+			}
+			canvasImageData = this.editHistory.savedCanvases[this.editHistory.pointer];
+			this.canvas.resize(canvasImageData.width, canvasImageData.height);
+			this.canvas.ctx.putImageData(canvasImageData, 0, 0);
+		}
+	}
+	
+	class Canvas {
+		constructor(scale, logicalWidth, logicalHeight) {
+			this.scale = scale;
+			this.canvas = document.createElement('canvas');
+			this.ctx = this.canvas.getContext('2d');
+			this.canvas.width = logicalWidth;
+			this.canvas.height = logicalHeight;
+			this.canvas.style.width = '' + this.scale * this.canvas.width / devicePixelRatio + 'px';
+			this.canvas.style.height = '' + this.scale * this.canvas.height / devicePixelRatio + 'px';
+			this.canvas.style.backgroundColor = 'rgba(0, 0, 0, 1)';
+			this.canvas.style.imageRendering = 'pixelated';
+			this.canvas.style.position = 'absolute';
+			this.canvas.style.left = '110px';
+			document.body.appendChild(this.canvas);
+		}
+		rescale(number) {
+			var integerScalar = Math.floor(number);
+			this.canvas.style.width = '' + integerScalar * this.canvas.width / devicePixelRatio + 'px';
+			this.canvas.style.height = '' + integerScalar * this.canvas.height / devicePixelRatio + 'px';
+			this.scale = number;
+		}
+		resize(width, height, gridlines, color) {
+			//This is a HIGH STAKES method, as resizing the canvas resets all the image data and canvas ctx settings. You'd need to make sure you can save all this data to repaint after the resize, and test all cases thoroughly otherwise you could lose an entire spritemap... Heck, you might need to come up with a data backup plan outside this app in case there is some sort of bug/issue you have no control over.
+			//on a different note, when resizing, you most likely will want to change the width style properties of the canvas too. For one, they can see something happens easier, and two, you need to preserve the aspect ratio with devicePixelRatio.
+			//*if param gridlines a nonzero number, existing imageData erased
+			var original = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+			var paintGridlines = function(that, rowsEvery, columnsEvery) {
+				if(rowsEvery <= 0) {
+					rowsEvery = that.canvas.height;
+				}
+				if(columnsEvery <= 0) {
+					columnsEvery = that.canvas.width;
+				}
+				that.ctx.fillStyle = color;  //filled with whatever color you're currently painting with. (see App class fields).
+				rowsEvery = Math.abs(Math.ceil(rowsEvery)); //establishes whole number;
+				columnsEvery = Math.abs(Math.ceil(columnsEvery));
+				for(var i = 1; i < width / columnsEvery; i++) {
+					that.ctx.fillRect(i * (columnsEvery + 1) - 1, 0, 1, that.canvas.height);
+				}
+				for(i = 1; i < height / rowsEvery; i++) {
+					that.ctx.fillRect(0, i * (rowsEvery + 1) - 1, that.canvas.width, 1);
+				}
+			}
+			this.canvas.style.width = '' + this.scale * width / devicePixelRatio + 'px';
+		  this.canvas.style.height = '' + this.scale * height / devicePixelRatio + 'px';
+			this.canvas.width = width;  //resetting these has the side effect of erasing existing imageData
+			this.canvas.height = height;
+debugger;
+			if(!gridlines || (gridlines[0] === 0 && gridlines[1] === 0)) {
+console.log('put og img data');
+			  this.ctx.putImageData(original, 0, 0);
+		  } else if(typeof gridlines === 'object') {  //if gridlines defined, this code will ASSUME (could lead to bugs) the "object" is an array with two numbers in it, describing the width and height of each unit in the grid. It will then draw the grid over a blank canvas, erasing previous imageData
+		  	paintGridlines(this, gridlines[0], gridlines[1]);
+		  }
+		}
+		changeBackground(r, g, b, a) {
+//this should probably be a method of the app class (read more @*1)
+			this.canvas.style.backgroundColor = 'rgba(' + r + ', ' + g + ', ' + b + ', ' + a / 255 + ')';
+		}
+		bindClicked(handler) {
+			this.canvas.addEventListener('click', handler);
+		}
+	}
+	
+	class ToolBar {
+		constructor() {
+			this.div = document.createElement('div');
+			this.header = document.createElement('div');
+			this.div.appendChild(this.header);
+			this.div.style.backgroundColor = 'grey';
+			this.div.style.position = 'fixed';
+			this.div.style.width = '100px';
+			this.div.style.height = '100%';
+			this.div.style.left = 0;
+			this.header.innerHTML = 'Toolbar:<br><br>';
+			this.header.style.textAlign = 'center';
+			this.header.style.fontWeight = 'bold';
+			
+		}
+		handleClickEvent(event) {
+			event.stopPropagation();
+		}
+	}
+	
+	class InputField {
+		constructor(header) {
+			this.div = document.createElement('div');
+			this.input = document.createElement('input');
+			this.div.innerHTML = header;
+			this.div.style.textAlign = 'center';
+			this.div.appendChild(this.input);
+			this.input.style.width = '80px';
+			this.input.style.marginLeft = '2px';
+		}
+		bindInput(handler) {
+			this.input.addEventListener('keydown', function(event) {if(event.key === 'Enter') {handler();}});
+		}
+		setValue(value) {
+			this.input.value = value;
+		}
+	}
+	
+	class Button {
+		constructor(header) {
+			this.button = document.createElement('button');
+			this.button.innerHTML = header;
+			this.button.style.width = '80px';
+			this.button.style.marginLeft = '2px';
+		}
+		bindClicked(handler) {
+			this.button.addEventListener('click', handler);
+		}
+	}
+	
+	class PixelSelector {
+		constructor() {
+			this.x = 0;
+			this.y = 0;
+			this.active = false;
+		}
+	}
+	
+	class Label {
+		constructor(left, right, top, bottom) {
+		  this.p = document.createElement('p');
+		  this.p.style.backgroundColor = 'rgba(255, 255, 255, 1)';
+		  this.p.style.position ='fixed';
+		  if(left !== undefined) {
+		    this.p.style.left = left;
+		  }
+		  if(right !== undefined) {
+		    this.p.style.right = right;
+		  }
+		  if(top !== undefined) {
+		    this.p.style.top = top;
+		  }
+		  if(bottom !== undefined) {
+		    this.p.style.bottom = bottom;
+		  }
+		}
+		changeLabel(value) {
+			this.p.innerText = value;
+		}
+	}
+	
+	var app = new App();
+	
+  /*Index:
+    *1: I am noticing that in mvc, model and view are similar in that both are much more like data, and controller is much more procedural. so in essence, almost all the methods and event-driven stuff belongs to the app. The controller is on top, and can access the data of the model and view, but model and view are on bottom, and can't access each other. If you were to design the way this method currently works, the host property would allow model and view to access each other.   In a bigger sense, the binding approach addresses the problem of control between different classes. Historically, you have used the host approach, which works, but creates a super object and is not best practice. MVC just approaches it a bit better. And even in a more general sense, it seems like **Control should be at the top (most abstract classes), not the bottom (least abstract classes)**.  What I think this means moving forward is that if you find yourself using the host approach in future projects, you are probably approaching it wrong. I think the bind approach also enables you to design from abstract first and worry about details later.    This differentiation of where the control resides also establishes the difference between a framework and a library. (programmer calls library methods himself, whereas frameworks call the programmer's methods for him.)
+  */
+	
+</script>
+</body>
+</html>
