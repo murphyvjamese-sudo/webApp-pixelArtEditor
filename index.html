@@ -235,7 +235,7 @@ console.log('pt3');
 				this.greenInput.input.value = pixel.data[1].toString();
 				this.blueInput.input.value = pixel.data[2].toString();
 				this.alphaInput.input.value = pixel.data[3].toString();
-			} else if(this.inVMode && localStorage.imageData) {  //paste from imageData (should allow you to paste between tabs)
+			} else if(this.inVMode && localStorage.imageData) {  //paste from imageData (should allow you to paste between tabs) //update: I think this doesn't work because in order to get to "v mode" you have to copy something else first, which overrides the local storage.
         this.canvas.ctx.putImageData(new ImageData(new Uint8ClampedArray(JSON.parse('[' + localStorage.imageData + ']')), parseInt(localStorage.imageDataWidth)), x, y);
 				this.canvasChanged();
 				this.pixelSelectorA.active = false;
@@ -438,6 +438,7 @@ console.log('worked ctrl-y');
 			this.canvas.style.position = 'absolute';
 			this.canvas.style.left = '110px';
 			document.body.appendChild(this.canvas);
+			this.canvas.addEventListener("contextmenu", (e) => {e.preventDefault();});  //prevent ctrl+click on canvas from triggering context menu on MacOS that interferes with copy/paste and translating functions
 		}
 		rescale(number) {
 			var integerScalar = Math.floor(number);
@@ -484,7 +485,7 @@ console.log('put og img data');
 			this.canvas.style.backgroundColor = 'rgba(' + r + ', ' + g + ', ' + b + ', ' + a / 255 + ')';
 		}
 		bindClicked(handler) {
-			this.canvas.addEventListener('click', handler);
+			this.canvas.addEventListener('mousedown', handler);
 		}
 	}
 	
