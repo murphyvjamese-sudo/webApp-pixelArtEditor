@@ -92,6 +92,7 @@ App is doing well :) There are really just 3 more main things you need to protec
 			//dom data
 		  document.body.style.backgroundColor = 'rgba(245, 214, 171, 1)';
 			this.coordinateTracker = new Label(0, undefined, undefined, 0);
+			this.commandList = new Label(undefined, 0, undefined, 0);
 			this.toolBar = new ToolBar();
 			this.redInput = new InputField('Red');
 			this.greenInput = new InputField('Green');
@@ -105,9 +106,10 @@ App is doing well :) There are really just 3 more main things you need to protec
 			this.exportButton = new Button('Export');
 			this.backgroundButton = new Button('Apply color to <br> background');
 			this.canvas = new Canvas(this.magnification, this.width, this.height);
-			
+
 			//fitting my data to dom data
 			this.coordinateTracker.changeLabel('x: y: ');
+			this.commandList.changeLabel('UNDO:ctrl+z\nREDO:ctrl+y\nEYEDROPPER:shift+click\nCOPY/PASTE:ctrl+click\nTRANSLATE:ctrl+shift+click');
 			this.redInput.setValue(this.r.toString());
 			this.blueInput.setValue(this.g.toString());
 			this.greenInput.setValue(this.b.toString());
@@ -148,6 +150,7 @@ App is doing well :) There are really just 3 more main things you need to protec
 			this.toolBar.div.appendChild(this.importInput.div);
 			this.toolBar.div.appendChild(this.exportButton.button);
 			document.body.appendChild(this.coordinateTracker.p);
+			document.body.appendChild(this.commandList.p);
 			
 			//initializing editHistory property
 			for(i = 0; i < 20; i ++) {
